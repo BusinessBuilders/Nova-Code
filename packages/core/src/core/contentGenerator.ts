@@ -16,6 +16,7 @@ import { GoogleGenAI } from '@google/genai';
 import { createCodeAssistContentGenerator } from '../code_assist/codeAssist.js';
 import type { Config } from '../config/config.js';
 import { OpenAIClient } from './openAIClient.js';
+import { OllamaClient } from './ollamaClient.js';
 
 import type { UserTierId } from '../code_assist/types.js';
 import { LoggingContentGenerator } from './loggingContentGenerator.js';
@@ -97,12 +98,25 @@ export function createContentGeneratorConfig(
     const localModelConfig: LocalModelConfig = {
       ...config.getLocalModel(),
     };
+    const envProvider = process.env['LOCAL_MODEL_PROVIDER'];
+    if (!localModelConfig.provider && envProvider) {
+      if (envProvider === 'ollama' || envProvider === 'openai-compatible') {
+        localModelConfig.provider = envProvider;
+      }
+    }
     const provider = localModelConfig.provider ?? 'openai-compatible';
     localModelConfig.provider = provider;
+    if (!localModelConfig.endpoint && process.env['LOCAL_MODEL_ENDPOINT']) {
+      localModelConfig.endpoint = process.env['LOCAL_MODEL_ENDPOINT'];
+    }
+    if (!localModelConfig.model && process.env['LOCAL_MODEL_MODEL']) {
+      localModelConfig.model = process.env['LOCAL_MODEL_MODEL'];
+    }
     const apiKey =
       localModelConfig.apiKey ||
       process.env['OPENAI_API_KEY'] ||
-      process.env['LOCAL_MODEL_API_KEY'];
+      process.env['LOCAL_MODEL_API_KEY'] ||
+      process.env['OPENROUTER_API_KEY'];
     if (apiKey) {
       localModelConfig.apiKey = apiKey;
     }
@@ -162,7 +176,16 @@ export async function createContentGenerator(
   }
 
   if (config.authType === AuthType.USE_LOCAL_MODEL) {
-    return new LoggingContentGenerator(new OpenAIClient(config), gcConfig);
+    const provider = config.localModel?.provider ?? 'openai-compatible';
+    if (provider === 'ollama') {
+      return new LoggingContentGenerator(new OllamaClient(config), gcConfig);
+    }
+    if (provider === 'openai-compatible') {
+      return new LoggingContentGenerator(new OpenAIClient(config), gcConfig);
+    }
+    throw new Error(
+      `Error creating contentGenerator: Unsupported local model provider "${provider}"`,
+    );
   }
 
   if (

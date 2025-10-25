@@ -146,6 +146,16 @@ export LOCAL_MODEL_MODEL="gpt-4.1-mini"
 export LOCAL_MODEL_API_KEY="YOUR_CUSTOM_KEY"
 ```
 
+If you're connecting through [OpenRouter](https://openrouter.ai/) or another
+gateway that requires custom headers, export `OPENROUTER_API_KEY` along with
+optional metadata:
+
+```bash
+export OPENROUTER_API_KEY="YOUR_OPENROUTER_KEY"
+export OPENROUTER_SITE_URL="https://your-site.example.com"
+export OPENROUTER_APP_NAME="Gemini CLI"
+```
+
 #### Local runtimes (Ollama, DeepSeek local, etc.)
 
 To talk to local models exposed via [Ollama](https://ollama.com/):
