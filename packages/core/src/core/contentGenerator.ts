@@ -15,6 +15,7 @@ import type {
 import { GoogleGenAI } from '@google/genai';
 import { createCodeAssistContentGenerator } from '../code_assist/codeAssist.js';
 import type { Config } from '../config/config.js';
+import { OpenAIClient } from './openAIClient.js';
 
 import type { UserTierId } from '../code_assist/types.js';
 import { LoggingContentGenerator } from './loggingContentGenerator.js';
@@ -46,7 +47,17 @@ export enum AuthType {
   LOGIN_WITH_GOOGLE = 'oauth-personal',
   USE_GEMINI = 'gemini-api-key',
   USE_VERTEX_AI = 'vertex-ai',
+  USE_LOCAL_MODEL = 'local-model',
   CLOUD_SHELL = 'cloud-shell',
+}
+
+export type LocalModelProvider = 'openai-compatible' | 'ollama';
+
+export interface LocalModelConfig {
+  endpoint?: string;
+  model?: string;
+  apiKey?: string;
+  provider?: LocalModelProvider;
 }
 
 export type ContentGeneratorConfig = {
@@ -54,6 +65,7 @@ export type ContentGeneratorConfig = {
   vertexai?: boolean;
   authType?: AuthType;
   proxy?: string;
+  localModel?: LocalModelConfig;
 };
 
 export function createContentGeneratorConfig(
@@ -78,6 +90,23 @@ export function createContentGeneratorConfig(
     authType === AuthType.LOGIN_WITH_GOOGLE ||
     authType === AuthType.CLOUD_SHELL
   ) {
+    return contentGeneratorConfig;
+  }
+
+  if (authType === AuthType.USE_LOCAL_MODEL) {
+    const localModelConfig: LocalModelConfig = {
+      ...config.getLocalModel(),
+    };
+    const provider = localModelConfig.provider ?? 'openai-compatible';
+    localModelConfig.provider = provider;
+    const apiKey =
+      localModelConfig.apiKey ||
+      process.env['OPENAI_API_KEY'] ||
+      process.env['LOCAL_MODEL_API_KEY'];
+    if (apiKey) {
+      localModelConfig.apiKey = apiKey;
+    }
+    contentGeneratorConfig.localModel = localModelConfig;
     return contentGeneratorConfig;
   }
 
@@ -130,6 +159,10 @@ export async function createContentGenerator(
       ),
       gcConfig,
     );
+  }
+
+  if (config.authType === AuthType.USE_LOCAL_MODEL) {
+    return new LoggingContentGenerator(new OpenAIClient(config), gcConfig);
   }
 
   if (

@@ -16,6 +16,7 @@ import type {
   MCPServerConfig,
   OutputFormat,
   GeminiCLIExtension,
+  LocalModelConfig,
 } from '@google/gemini-cli-core';
 import { extensionsCommand } from '../commands/extensions.js';
 import {
@@ -580,6 +581,43 @@ export async function loadCliConfig(
 
   const ptyInfo = await getPty();
 
+  const envLocalModel: LocalModelConfig = {};
+  let hasEnvLocalModel = false;
+  const endpointEnv = process.env['LOCAL_MODEL_ENDPOINT'];
+  if (endpointEnv) {
+    envLocalModel.endpoint = endpointEnv;
+    hasEnvLocalModel = true;
+  }
+  const modelEnv = process.env['LOCAL_MODEL_MODEL'];
+  if (modelEnv) {
+    envLocalModel.model = modelEnv;
+    hasEnvLocalModel = true;
+  }
+  const apiKeyEnv = process.env['LOCAL_MODEL_API_KEY'];
+  if (apiKeyEnv) {
+    envLocalModel.apiKey = apiKeyEnv;
+    hasEnvLocalModel = true;
+  }
+  const providerEnv = process.env['LOCAL_MODEL_PROVIDER'];
+  if (providerEnv) {
+    if (providerEnv === 'ollama' || providerEnv === 'openai-compatible') {
+      envLocalModel.provider = providerEnv;
+      hasEnvLocalModel = true;
+    } else {
+      debugLogger.warn(
+        `Ignoring unsupported LOCAL_MODEL_PROVIDER value "${providerEnv}". Valid options are "openai-compatible" or "ollama".`,
+      );
+    }
+  }
+
+  const mergedLocalModel =
+    settings.localModel || hasEnvLocalModel
+      ? {
+          ...(settings.localModel ?? {}),
+          ...(hasEnvLocalModel ? envLocalModel : {}),
+        }
+      : undefined;
+
   return new Config({
     sessionId,
     embeddingModel: DEFAULT_GEMINI_EMBEDDING_MODEL,
@@ -654,6 +692,7 @@ export async function loadCliConfig(
       settings.tools?.enableMessageBusIntegration ?? false,
     codebaseInvestigatorSettings:
       settings.experimental?.codebaseInvestigatorSettings,
+    localModel: mergedLocalModel,
     fakeResponses: argv.fakeResponses,
     retryFetchErrors: settings.general?.retryFetchErrors ?? false,
     ptyInfo: ptyInfo?.name,

@@ -190,6 +190,46 @@ export GOOGLE_GENAI_USE_VERTEXAI=true
 gemini
 ```
 
+### Option 4: OpenAI / Custom / Local Models
+
+**✨ Best for:** Teams that already rely on OpenAI models (GPT-4o, GPT-4.1,
+etc.)
+
+**Benefits:**
+
+- **Model flexibility:** Use GPT-4o, GPT-4.1, GPT-4o-mini, or any other
+  chat-completions model ID
+- **Single key setup:** Reuse your existing `OPENAI_API_KEY`
+- **Custom endpoints:** Point to Azure/OpenAI-compatible gateways via settings
+
+```bash
+# Provide your OpenAI key
+export OPENAI_API_KEY="YOUR_OPENAI_KEY"
+
+# (optional) pick a default model via CLI
+gemini --model gpt-4o-mini
+```
+
+> Tip: To override the base URL or default model, set `localModel.endpoint` /
+> `localModel.model` inside the CLI settings file (run `/settings` inside the
+> app) or export `LOCAL_MODEL_ENDPOINT` / `LOCAL_MODEL_MODEL`.
+
+To target alternative OpenAI-compatible providers (DeepSeek, Groq, Azure OpenAI,
+etc.), point `localModel.endpoint` (or `LOCAL_MODEL_ENDPOINT`) at their base URL
+and keep the provider set to `openai-compatible`.
+
+#### Use local models via Ollama (DeepSeek, Llama, etc.)
+
+```bash
+export LOCAL_MODEL_PROVIDER=ollama
+export LOCAL_MODEL_MODEL=deepseek-coder:latest
+export LOCAL_MODEL_ENDPOINT=http://127.0.0.1:11434
+gemini --model deepseek-coder:latest
+```
+
+When `LOCAL_MODEL_PROVIDER=ollama` (or `localModel.provider` is set to
+`"ollama"`), the CLI talks to the local Ollama server and no API key is needed.
+
 For Google Workspace accounts and other authentication methods, see the
 [authentication guide](./docs/get-started/authentication.md).
 

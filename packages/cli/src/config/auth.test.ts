@@ -5,14 +5,16 @@
  */
 
 import { AuthType } from '@google/gemini-cli-core';
-import { vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { validateAuthMethod } from './auth.js';
+
+let mergedSettings: Record<string, unknown> = {};
 
 vi.mock('./settings.js', () => ({
   loadEnvironment: vi.fn(),
-  loadSettings: vi.fn().mockReturnValue({
-    merged: vi.fn().mockReturnValue({}),
-  }),
+  loadSettings: vi.fn().mockImplementation(() => ({
+    merged: mergedSettings,
+  })),
 }));
 
 describe('validateAuthMethod', () => {
@@ -22,6 +24,9 @@ describe('validateAuthMethod', () => {
     vi.stubEnv('GOOGLE_CLOUD_PROJECT', undefined);
     vi.stubEnv('GOOGLE_CLOUD_LOCATION', undefined);
     vi.stubEnv('GOOGLE_API_KEY', undefined);
+    vi.stubEnv('OPENAI_API_KEY', undefined);
+    vi.stubEnv('LOCAL_MODEL_API_KEY', undefined);
+    mergedSettings = {};
   });
 
   afterEach(() => {
@@ -73,6 +78,34 @@ describe('validateAuthMethod', () => {
           '• GOOGLE_API_KEY environment variable (if using express mode).\n' +
           'Update your environment and try again (no reload needed if using .env)!',
       );
+    });
+  });
+
+  describe('USE_LOCAL_MODEL', () => {
+    it('returns null if OPENAI_API_KEY is set', () => {
+      vi.stubEnv('OPENAI_API_KEY', 'openai-key');
+      expect(validateAuthMethod(AuthType.USE_LOCAL_MODEL)).toBeNull();
+    });
+
+    it('returns null if settings.localModel.apiKey is set', () => {
+      mergedSettings = { localModel: { apiKey: 'from-settings' } };
+      expect(validateAuthMethod(AuthType.USE_LOCAL_MODEL)).toBeNull();
+    });
+
+    it('returns error if no key is available', () => {
+      expect(validateAuthMethod(AuthType.USE_LOCAL_MODEL)).toBe(
+        'OPENAI_API_KEY not found. Provide an OpenAI-compatible key via environment variable, .env file, or settings.localModel.apiKey.',
+      );
+    });
+
+    it('does not require API key when provider is ollama', () => {
+      mergedSettings = { localModel: { provider: 'ollama' } };
+      expect(validateAuthMethod(AuthType.USE_LOCAL_MODEL)).toBeNull();
+    });
+
+    it('honors LOCAL_MODEL_PROVIDER=ollama', () => {
+      vi.stubEnv('LOCAL_MODEL_PROVIDER', 'ollama');
+      expect(validateAuthMethod(AuthType.USE_LOCAL_MODEL)).toBeNull();
     });
   });
 

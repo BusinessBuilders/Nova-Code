@@ -111,6 +111,12 @@ class GeminiAgent {
           'Requires setting the `GEMINI_API_KEY` environment variable',
       },
       {
+        id: AuthType.USE_LOCAL_MODEL,
+        name: 'Use OpenAI / Custom / Local Models',
+        description:
+          'Use `OPENAI_API_KEY` for OpenAI-compatible APIs or set LOCAL_MODEL_PROVIDER=ollama for local runtimes',
+      },
+      {
         id: AuthType.USE_VERTEX_AI,
         name: 'Vertex AI',
         description: null,

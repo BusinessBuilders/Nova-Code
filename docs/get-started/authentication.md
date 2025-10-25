@@ -7,6 +7,7 @@ CLI, configure **one** of the following authentication methods:
   - Recommended: Login with Google
   - Use Gemini API key
   - Use Vertex AI
+  - Use OpenAI / Custom / Local models
 - Headless (non-interactive) mode
 - Google Cloud Shell
 
@@ -23,7 +24,8 @@ following options:
 ```bash
 > 1. Login with Google
 > 2. Use Gemini API key
-> 3. Vertex AI
+> 3. Use OpenAI / Custom / Local models
+> 4. Vertex AI
 ```
 
 The following sections provide instructions for each of these authentication
@@ -108,6 +110,55 @@ To make this setting persistent, see
 > **Warning:** Treat API keys, especially for services like Gemini, as sensitive
 > credentials. Protect them to prevent unauthorized access and potential misuse
 > of the service under your account.
+
+### Use OpenAI / Custom / Local Models
+
+If your organization already uses OpenAI (or compatible) models, you can point
+Gemini CLI at that API — or even a local runtime such as Ollama.
+
+1.  Obtain (or reuse) your OpenAI key.
+2.  Export the key before launching the CLI:
+
+    ```bash
+    export OPENAI_API_KEY="YOUR_OPENAI_KEY"
+    ```
+
+3.  (Optional) Override the default endpoint or model by editing the CLI
+    settings file (open it via `/settings`) and setting the `localModel`
+    section, for example:
+
+    ```jsonc
+    {
+      "localModel": {
+        "model": "gpt-4o-mini",
+        "endpoint": "https://api.openai.com/v1",
+      },
+    }
+    ```
+
+This same configuration works for DeepSeek, Azure OpenAI, Groq, or any other
+OpenAI-compatible gateway—just replace the endpoint with your deployment URL.
+You can also drive these settings with environment variables:
+
+```bash
+export LOCAL_MODEL_ENDPOINT="https://gateway.example.com/v1"
+export LOCAL_MODEL_MODEL="gpt-4.1-mini"
+export LOCAL_MODEL_API_KEY="YOUR_CUSTOM_KEY"
+```
+
+#### Local runtimes (Ollama, DeepSeek local, etc.)
+
+To talk to local models exposed via [Ollama](https://ollama.com/):
+
+```bash
+export LOCAL_MODEL_PROVIDER=ollama
+export LOCAL_MODEL_ENDPOINT="http://127.0.0.1:11434"
+export LOCAL_MODEL_MODEL="deepseek-coder:latest"
+gemini
+```
+
+Setting `localModel.provider` (or `LOCAL_MODEL_PROVIDER`) to `ollama` switches
+the CLI to the Ollama transport and no API key is required.
 
 ### Use Vertex AI
 

@@ -599,6 +599,61 @@ const SETTINGS_SCHEMA = {
     },
   },
 
+  localModel: {
+    type: 'object',
+    label: 'OpenAI / Custom Endpoint',
+    category: 'Model',
+    requiresRestart: true,
+    default: {},
+    description:
+      'Configure OpenAI (ChatGPT), other OpenAI-compatible services, or local runtimes such as Ollama.',
+    showInDialog: false,
+    properties: {
+      endpoint: {
+        type: 'string',
+        label: 'Endpoint',
+        category: 'Model',
+        requiresRestart: true,
+        default: undefined as string | undefined,
+        description: 'Base URL for the OpenAI-compatible endpoint.',
+        showInDialog: false,
+      },
+      model: {
+        type: 'string',
+        label: 'Model Name',
+        category: 'Model',
+        requiresRestart: true,
+        default: undefined as string | undefined,
+        description: 'Model identifier to target (e.g. gpt-4o, gpt-4o-mini).',
+        showInDialog: false,
+      },
+      apiKey: {
+        type: 'string',
+        label: 'API Key',
+        category: 'Model',
+        requiresRestart: true,
+        default: undefined as string | undefined,
+        description:
+          'API key for the OpenAI endpoint (optional if OPENAI_API_KEY is set).',
+        showInDialog: false,
+      },
+      provider: {
+        type: 'enum',
+        label: 'Provider',
+        category: 'Model',
+        requiresRestart: true,
+        default: 'openai-compatible',
+        description:
+          'Choose "ollama" for local runtimes (DeepSeek/Llama via Ollama) or leave as OpenAI-compatible.',
+        showInDialog: true,
+        options: [
+          { value: 'openai-compatible', label: 'OpenAI-compatible (default)' },
+          { value: 'ollama', label: 'Ollama / local runtime' },
+        ],
+      },
+    },
+  },
+
   context: {
     type: 'object',
     label: 'Context',

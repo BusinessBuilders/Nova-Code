@@ -58,6 +58,11 @@ export function AuthDialog({
       key: AuthType.USE_GEMINI,
     },
     {
+      label: 'Use OpenAI / Custom / Local Models',
+      value: AuthType.USE_LOCAL_MODEL,
+      key: AuthType.USE_LOCAL_MODEL,
+    },
+    {
       label: 'Vertex AI',
       value: AuthType.USE_VERTEX_AI,
       key: AuthType.USE_VERTEX_AI,
@@ -90,6 +95,10 @@ export function AuthDialog({
 
     if (process.env['GEMINI_API_KEY']) {
       return item.value === AuthType.USE_GEMINI;
+    }
+
+    if (process.env['OPENAI_API_KEY'] || process.env['LOCAL_MODEL_API_KEY']) {
+      return item.value === AuthType.USE_LOCAL_MODEL;
     }
 
     return item.value === AuthType.LOGIN_WITH_GOOGLE;

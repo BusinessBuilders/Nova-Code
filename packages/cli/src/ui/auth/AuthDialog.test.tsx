@@ -114,6 +114,16 @@ describe('AuthDialog', () => {
     });
   });
 
+  it('shows OpenAI option', () => {
+    renderWithProviders(<AuthDialog {...props} />);
+    const items = mockedRadioButtonSelect.mock.calls[0][0].items;
+    expect(items).toContainEqual({
+      label: 'Use OpenAI / Custom / Local Models',
+      value: AuthType.USE_LOCAL_MODEL,
+      key: AuthType.USE_LOCAL_MODEL,
+    });
+  });
+
   it('filters auth types when enforcedType is set', () => {
     props.settings.merged.security!.auth!.enforcedType = AuthType.USE_GEMINI;
     renderWithProviders(<AuthDialog {...props} />);
@@ -148,6 +158,13 @@ describe('AuthDialog', () => {
     renderWithProviders(<AuthDialog {...props} />);
     const { items, initialIndex } = mockedRadioButtonSelect.mock.calls[0][0];
     expect(items[initialIndex].value).toBe(AuthType.USE_GEMINI);
+  });
+
+  it('selects initial auth type from OPENAI_API_KEY env var', () => {
+    process.env['OPENAI_API_KEY'] = 'openai-key';
+    renderWithProviders(<AuthDialog {...props} />);
+    const { items, initialIndex } = mockedRadioButtonSelect.mock.calls[0][0];
+    expect(items[initialIndex].value).toBe(AuthType.USE_LOCAL_MODEL);
   });
 
   it('defaults to Login with Google', () => {

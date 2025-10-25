@@ -38,14 +38,23 @@ describe('validateNonInterActiveAuth', () => {
   let processExitSpy: MockInstance;
   let refreshAuthMock: Mock;
   let mockSettings: LoadedSettings;
+  let originalEnvOpenAiKey: string | undefined;
+  let originalEnvLocalModelProvider: string | undefined;
+  let originalEnvLocalModelKey: string | undefined;
 
   beforeEach(() => {
     originalEnvGeminiApiKey = process.env['GEMINI_API_KEY'];
     originalEnvVertexAi = process.env['GOOGLE_GENAI_USE_VERTEXAI'];
     originalEnvGcp = process.env['GOOGLE_GENAI_USE_GCA'];
+    originalEnvOpenAiKey = process.env['OPENAI_API_KEY'];
+    originalEnvLocalModelProvider = process.env['LOCAL_MODEL_PROVIDER'];
+    originalEnvLocalModelKey = process.env['LOCAL_MODEL_API_KEY'];
     delete process.env['GEMINI_API_KEY'];
     delete process.env['GOOGLE_GENAI_USE_VERTEXAI'];
     delete process.env['GOOGLE_GENAI_USE_GCA'];
+    delete process.env['OPENAI_API_KEY'];
+    delete process.env['LOCAL_MODEL_PROVIDER'];
+    delete process.env['LOCAL_MODEL_API_KEY'];
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     processExitSpy = vi
       .spyOn(process, 'exit')
@@ -90,6 +99,21 @@ describe('validateNonInterActiveAuth', () => {
       process.env['GOOGLE_GENAI_USE_GCA'] = originalEnvGcp;
     } else {
       delete process.env['GOOGLE_GENAI_USE_GCA'];
+    }
+    if (originalEnvOpenAiKey !== undefined) {
+      process.env['OPENAI_API_KEY'] = originalEnvOpenAiKey;
+    } else {
+      delete process.env['OPENAI_API_KEY'];
+    }
+    if (originalEnvLocalModelProvider !== undefined) {
+      process.env['LOCAL_MODEL_PROVIDER'] = originalEnvLocalModelProvider;
+    } else {
+      delete process.env['LOCAL_MODEL_PROVIDER'];
+    }
+    if (originalEnvLocalModelKey !== undefined) {
+      process.env['LOCAL_MODEL_API_KEY'] = originalEnvLocalModelKey;
+    } else {
+      delete process.env['LOCAL_MODEL_API_KEY'];
     }
     vi.restoreAllMocks();
   });
@@ -211,6 +235,34 @@ describe('validateNonInterActiveAuth', () => {
       mockSettings,
     );
     expect(refreshAuthMock).toHaveBeenCalledWith(AuthType.USE_VERTEX_AI);
+  });
+
+  it('uses USE_LOCAL_MODEL if OPENAI_API_KEY is set', async () => {
+    process.env['OPENAI_API_KEY'] = 'openai-key';
+    const nonInteractiveConfig = createLocalMockConfig({
+      refreshAuth: refreshAuthMock,
+    });
+    await validateNonInteractiveAuth(
+      undefined,
+      undefined,
+      nonInteractiveConfig,
+      mockSettings,
+    );
+    expect(refreshAuthMock).toHaveBeenCalledWith(AuthType.USE_LOCAL_MODEL);
+  });
+
+  it('uses USE_LOCAL_MODEL if LOCAL_MODEL_PROVIDER=ollama', async () => {
+    process.env['LOCAL_MODEL_PROVIDER'] = 'ollama';
+    const nonInteractiveConfig = createLocalMockConfig({
+      refreshAuth: refreshAuthMock,
+    });
+    await validateNonInteractiveAuth(
+      undefined,
+      undefined,
+      nonInteractiveConfig,
+      mockSettings,
+    );
+    expect(refreshAuthMock).toHaveBeenCalledWith(AuthType.USE_LOCAL_MODEL);
   });
 
   it('uses USE_GEMINI if GOOGLE_GENAI_USE_VERTEXAI is false, GEMINI_API_KEY is set, and project/location are available', async () => {

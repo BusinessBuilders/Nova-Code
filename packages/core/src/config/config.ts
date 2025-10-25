@@ -9,6 +9,7 @@ import process from 'node:process';
 import type {
   ContentGenerator,
   ContentGeneratorConfig,
+  LocalModelConfig,
 } from '../core/contentGenerator.js';
 import {
   AuthType,
@@ -280,6 +281,7 @@ export interface ConfigParameters {
   useModelRouter?: boolean;
   enableMessageBusIntegration?: boolean;
   codebaseInvestigatorSettings?: CodebaseInvestigatorSettings;
+  localModel?: LocalModelConfig;
   continueOnFailedApiCall?: boolean;
   retryFetchErrors?: boolean;
   enableShellOutputEfficiency?: boolean;
@@ -384,6 +386,7 @@ export class Config {
   private readonly enableShellOutputEfficiency: boolean;
   readonly fakeResponses?: string;
   private readonly disableYoloMode: boolean;
+  private readonly localModel: LocalModelConfig | undefined;
 
   constructor(params: ConfigParameters) {
     this.sessionId = params.sessionId;
@@ -502,6 +505,7 @@ export class Config {
     };
     this.retryFetchErrors = params.retryFetchErrors ?? false;
     this.disableYoloMode = params.disableYoloMode ?? false;
+    this.localModel = params.localModel;
 
     if (params.contextFileName) {
       setGeminiMdFilename(params.contextFileName);
@@ -728,6 +732,10 @@ export class Config {
 
   getMcpServers(): Record<string, MCPServerConfig> | undefined {
     return this.mcpServers;
+  }
+
+  getLocalModel(): LocalModelConfig | undefined {
+    return this.localModel;
   }
 
   getUserMemory(): string {

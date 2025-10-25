@@ -8,7 +8,8 @@ import { AuthType } from '@google/gemini-cli-core';
 import { loadEnvironment, loadSettings } from './settings.js';
 
 export function validateAuthMethod(authMethod: string): string | null {
-  loadEnvironment(loadSettings().merged);
+  const settings = loadSettings().merged;
+  loadEnvironment(settings);
   if (
     authMethod === AuthType.LOGIN_WITH_GOOGLE ||
     authMethod === AuthType.CLOUD_SHELL
@@ -39,6 +40,27 @@ export function validateAuthMethod(authMethod: string): string | null {
         '• GOOGLE_API_KEY environment variable (if using express mode).\n' +
         'Update your environment and try again (no reload needed if using .env)!'
       );
+    }
+    return null;
+  }
+
+  if (authMethod === AuthType.USE_LOCAL_MODEL) {
+    const providerEnv = process.env['LOCAL_MODEL_PROVIDER'];
+    const normalizedProviderEnv =
+      providerEnv === 'ollama' || providerEnv === 'openai-compatible'
+        ? providerEnv
+        : undefined;
+    const provider =
+      settings.localModel?.provider ??
+      normalizedProviderEnv ??
+      'openai-compatible';
+    const requiresApiKey = provider !== 'ollama';
+    const hasApiKey =
+      !!process.env['OPENAI_API_KEY'] ||
+      !!process.env['LOCAL_MODEL_API_KEY'] ||
+      !!settings.localModel?.apiKey;
+    if (requiresApiKey && !hasApiKey) {
+      return 'OPENAI_API_KEY not found. Provide an OpenAI-compatible key via environment variable, .env file, or settings.localModel.apiKey.';
     }
     return null;
   }
