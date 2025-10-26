@@ -5,6 +5,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { FinishReason, FunctionCallingConfigMode } from '@google/genai';
 import type {
   Candidate,
   Content,
@@ -14,10 +15,8 @@ import type {
   CountTokensResponse,
   EmbedContentParameters,
   EmbedContentResponse,
-  FinishReason,
   FunctionCall,
   FunctionDeclaration,
-  FunctionCallingConfigMode,
   GenerateContentParameters,
   GenerateContentResponse,
   GenerateContentResponseUsageMetadata,
@@ -665,21 +664,9 @@ export class OpenAIClient implements ContentGenerator {
     }
 
     if (config.responseMimeType === 'application/json') {
-      if (config.responseJsonSchema) {
-        const schema = cloneSchema(config.responseJsonSchema) ?? {
-          type: 'object',
-          properties: {},
-        };
-        payload.response_format = {
-          type: 'json_schema',
-          json_schema: {
-            name: 'gemini_response',
-            schema,
-          },
-        };
-      } else {
-        payload.response_format = { type: 'json_object' };
-      }
+      // Use simple json_object format for compatibility with Ollama and other OpenAI-compatible endpoints
+      // The schema is enforced via system prompt instructions instead
+      payload.response_format = { type: 'json_object' };
     }
 
     if (stream) {

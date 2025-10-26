@@ -5,6 +5,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { FinishReason } from '@google/genai';
 import type {
   Candidate,
   Content,
@@ -14,7 +15,6 @@ import type {
   CountTokensResponse,
   EmbedContentParameters,
   EmbedContentResponse,
-  FinishReason,
   FunctionCall,
   GenerateContentParameters,
   GenerateContentResponse,
@@ -123,10 +123,10 @@ export class OllamaClient implements ContentGenerator {
 
   private resolveEndpoint(rawEndpoint: string): string {
     const trimmed = rawEndpoint.replace(/\/+$/, '');
-    if (trimmed.endsWith('/api/chat')) {
+    if (trimmed.endsWith('/v1/chat/completions')) {
       return trimmed;
     }
-    return `${trimmed}/api/chat`;
+    return `${trimmed}/v1/chat/completions`;
   }
 
   private mapRole(role?: string): 'user' | 'assistant' | 'system' {
@@ -386,11 +386,10 @@ export class OllamaClient implements ContentGenerator {
     }
 
     const data = (await response.json()) as {
-      message?: { content?: string };
-      eval_count?: number;
-      prompt_eval_count?: number;
+      choices?: Array<{ message?: { content?: string } }>;
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
     };
-    const text = data.message?.content ?? '';
+    const text = data.choices?.[0]?.message?.content ?? '';
     const { text: strippedText, functionCalls } = extractToolCalls(text);
     const parts: Part[] = [];
     if (strippedText) {
@@ -412,10 +411,10 @@ export class OllamaClient implements ContentGenerator {
       ],
     } as GenerateContentResponse;
 
-    if (data.prompt_eval_count !== undefined || data.eval_count !== undefined) {
+    if (data.usage?.prompt_tokens !== undefined || data.usage?.completion_tokens !== undefined) {
       result.usageMetadata = {
-        promptTokenCount: data.prompt_eval_count,
-        candidatesTokenCount: data.eval_count,
+        promptTokenCount: data.usage.prompt_tokens,
+        candidatesTokenCount: data.usage.completion_tokens,
       } as GenerateContentResponseUsageMetadata;
     }
 
