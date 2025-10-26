@@ -1,8 +1,9 @@
 # Repository Guidelines
 
-https://github.com/QwenLM/qwen-code
+# Reference Implementations
 
-#has local model support https://github.com/cline/cline/
+- https://github.com/QwenLM/qwen-code — subagent flow + tool result feedback
+- https://github.com/cline/cline/ — mature OpenRouter/local model orchestration
 
 ## Project Structure & Module Organization
 
@@ -61,3 +62,16 @@ Never commit secrets; `.env` and nested `.gemini/` remain local. Rely on
 `GEMINI_SANDBOX`, `OPENAI_API_KEY`, and `LOCAL_MODEL_*` to exercise the
 multi-provider paths. Run `npm run auth:docker` before sandbox-dependent tests,
 and scrub sensitive details from logs attached to issues.
+
+## Multi-Provider Status
+
+| Status       | Item                                                                                                                       |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| ✅ Shipped   | OpenAI-compatible adapter (`packages/core/src/core/openAIClient.ts`) with streaming/tool-call parity + OpenRouter headers. |
+| ✅ Shipped   | Ollama adapter with strict `tool_call` instructions, streaming parser, and fenced `tool_result` echoes.                    |
+| ✅ Shipped   | Vitest coverage + docs for both providers, `.gitignore` + lint ignores for env/context files.                              |
+| ⚙️ In flight | Guardrails for Ollama history (prune orphaned calls, similar to Qwen’s `cleanOrphanedToolCalls`).                          |
+| ⚙️ In flight | Inject real tool output back into the `tool_result` block so local models can reason mid-run.                              |
+| ⚙️ In flight | Prompt-tune + validate on actual Ollama models (DeepSeek/Qwen) to ensure reliable `tool_call`/`tool_result` usage.         |
+| ⏳ Blocked   | Full `npm run test:integration:sandbox:none` pending Gemini quota reset/higher-tier key.                                   |
+| 📌 Next      | Explore sharing converter logic (à la Qwen `openaiContentGenerator/converter.ts`) for future provider adapters.            |

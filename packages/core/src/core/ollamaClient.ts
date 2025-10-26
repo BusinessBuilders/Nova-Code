@@ -29,23 +29,6 @@ import type {
 } from './contentGenerator.js';
 import { toContents } from '../code_assist/converter.js';
 
-function toContents(contents: ContentListUnion): Content[] {
-  if (Array.isArray(contents)) {
-    return contents.map(toContent);
-  }
-  return [toContent(contents)];
-}
-
-function toContent(content: Content | Part | string): Content {
-  if (typeof content === 'string') {
-    return { role: 'user', parts: [{ text: content }] };
-  }
-  if ('role' in content) {
-    return content as Content;
-  }
-  return { role: 'user', parts: [content as Part] };
-}
-
 function partToText(part: Part): string {
   if ('text' in part && typeof part.text === 'string') {
     return part.text;
@@ -169,10 +152,91 @@ export class OllamaClient implements ContentGenerator {
     return ['```tool_result', JSON.stringify(payload), '```'].join('\n');
   }
 
+  private mapRole(role?: string): 'user' | 'assistant' | 'system' {
+    if (!role) {
+      return 'user';
+    }
+    const normalized = role.toLowerCase();
+    if (normalized === 'model' || normalized === 'assistant') {
+      return 'assistant';
+    }
+    if (normalized === 'system') {
+      return 'system';
+    }
+    return 'user';
+  }
+
+  private formatToolResult(response: NonNullable<Part['functionResponse']>) {
+    const payload = {
+      call_id: response.id ?? randomUUID(),
+      name: response.name ?? 'tool',
+      output: response.response ?? {},
+    };
+    return ['```tool_result', JSON.stringify(payload), '```'].join('\n');
+  }
+
+  private normalizeToolHistory(contents: Content[]): Content[] {
+    const normalized: Content[] = [];
+    const callIds = new Set<string>();
+    const resolvedCallIds = new Set<string>();
+
+    contents.forEach((content) => {
+      const parts = content.parts ?? [];
+      const clonedParts: Part[] = [];
+      for (const part of parts) {
+        if (part.functionCall) {
+          const callId = part.functionCall.id ?? randomUUID();
+          if (!part.functionCall.id) {
+            part.functionCall.id = callId;
+          }
+          callIds.add(callId);
+          clonedParts.push(part);
+        } else if (part.functionResponse) {
+          const callId = part.functionResponse.id;
+          if (!callId) {
+            clonedParts.push(part);
+          } else if (callIds.has(callId)) {
+            resolvedCallIds.add(callId);
+            clonedParts.push(part);
+          }
+        } else {
+          clonedParts.push(part);
+        }
+      }
+      if (clonedParts.length > 0) {
+        normalized.push({ ...content, parts: clonedParts });
+      }
+    });
+
+    if (callIds.size === resolvedCallIds.size) {
+      return normalized;
+    }
+
+    const unresolvedIds = new Set<string>();
+    for (const callId of callIds) {
+      if (!resolvedCallIds.has(callId)) {
+        unresolvedIds.add(callId);
+      }
+    }
+
+    return normalized
+      .map((content) => {
+        const filtered = (content.parts ?? []).filter((part) => {
+          const id = part.functionCall?.id;
+          if (id && unresolvedIds.has(id)) {
+            return false;
+          }
+          return true;
+        });
+        return filtered.length > 0 ? { ...content, parts: filtered } : null;
+      })
+      .filter((content): content is Content => content !== null);
+  }
+
   private contentsToMessages(
     contents: ContentListUnion,
   ): Array<{ role: 'user' | 'assistant' | 'system'; content: string }> {
-    const normalized = toContents(contents);
+    const normalized = this.normalizeToolHistory(toContents(contents));
     const messages: Array<{
       role: 'user' | 'assistant' | 'system';
       content: string;

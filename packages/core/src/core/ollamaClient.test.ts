@@ -75,6 +75,8 @@ describe('OllamaClient', () => {
     });
     expect(body.messages[0]?.content).toContain('```tool_call');
     expect(body.messages[0]?.content).toContain('run_shell');
+    expect(body.messages[0]?.content).toContain('tool_result');
+    expect(body.messages[0]?.content).toContain('tool_result');
 
     expect(response.functionCalls?.[0]?.name).toBe('run_shell');
     expect(
@@ -124,6 +126,42 @@ describe('OllamaClient', () => {
     expect(toolResultMessage).toBeDefined();
     expect(toolResultMessage?.content).toContain('call-1');
     expect(toolResultMessage?.role).toBe('user');
+  });
+
+  it('removes orphaned tool calls before sending history', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          message: { content: 'Response' },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const client = createClient();
+    await client.generateContent(
+      {
+        model: 'deepseek-coder',
+        contents: [
+          {
+            role: 'model',
+            parts: [{ functionCall: { name: 'run_shell', args: {} } }],
+          },
+        ],
+      },
+      'prompt-3',
+    );
+
+    const body = JSON.parse(
+      (fetchMock.mock.calls[0]?.[1]?.body ?? '{}') as string,
+    ) as { messages: Array<{ role: string; content: string }> };
+
+    expect(
+      body.messages.some(
+        (msg) =>
+          typeof msg.content === 'string' && msg.content.includes('run_shell'),
+      ),
+    ).toBe(false);
   });
 
   it('returns plain text when no tool call is present', async () => {

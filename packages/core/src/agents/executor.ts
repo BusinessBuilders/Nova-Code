@@ -394,6 +394,9 @@ export class AgentExecutor<TOutput extends z.ZodTypeAny> {
 
     for (const [index, functionCall] of functionCalls.entries()) {
       const callId = functionCall.id ?? `${promptId}-${index}`;
+      if (!functionCall.id) {
+        functionCall.id = callId;
+      }
       const args = (functionCall.args ?? {}) as Record<string, unknown>;
 
       this.emitActivity('TOOL_CALL_START', {
