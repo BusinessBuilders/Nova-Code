@@ -56,3 +56,7 @@ gha-creds-*.json
 # Log files
 patch_output.log
 IMPLEMENTEXAMPLE/
+
+# Test directories
+hello/
+hello kitty/

@@ -380,6 +380,269 @@ export OPENAI_API_KEY=ollama  # Dummy key (Ollama doesn't require auth)
 - **qwen2.5-coder:7b** - Better quality, still fast (~4.7GB)
 - **qwen2.5-coder:14b** - Best quality for coding tasks (~8.7GB)
 
+## llama.cpp + Qwen3-Coder-30B Setup (RECOMMENDED for Jetson)
+
+### Why llama.cpp Instead of Ollama?
+
+For the Qwen3-Coder-30B model on Jetson Orin AGX:
+- ✅ **Better tool calling support**: Proper OpenAI-compatible function calling format
+- ✅ **No Modelfile bugs**: Ollama 0.12.6 has CLI/server version mismatch issues
+- ✅ **Memory optimization**: Can set context window to 8192 tokens (reduces from ~38GB to ~25GB)
+- ✅ **Uses existing GGUF**: Works with `/mnt/ssd/models/qwen3-coder-30b/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf`
+
+### Quick Setup (Compile from Source - WORKING METHOD)
+
+**⚠️ NOTE: jetson-containers build is currently broken due to pip index issues**
+
+```bash
+# 1. Enter your nova_backup_with_deps container (has build tools + CUDA)
+docker run -it --rm \
+    --runtime nvidia \
+    --network host \
+    --privileged \
+    --device /dev/snd \
+    --device /dev/bus/usb \
+    --device /dev/dri \
+    -v /dev:/dev \
+    -v /mnt/ssd/models:/models \
+    -v /mnt/ssd/humanrobot:/workspace \
+    -v ~/.asoundrc:/root/.asoundrc:ro \
+    --group-add audio \
+    --cap-add SYS_ADMIN \
+    nova_backup_with_deps:latest bash
+
+# 2. Clone and build llama.cpp (only needed once)
+cd /models
+git clone https://github.com/ggerganov/llama.cpp.git
+cd llama.cpp
+mkdir build && cd build
+cmake .. -DGGML_CUDA=ON
+cmake --build . --config Release -j8
+
+# 3. Start llama-server in background
+/models/llama.cpp/build/bin/llama-server \
+    -m /models/qwen3-coder-30b/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf \
+    --host 0.0.0.0 \
+    --port 8080 \
+    -c 8192 \
+    -ngl 99 \
+    --chat-template qwen \
+    > /tmp/llama-server.log 2>&1 &
+
+# 4. Configure Nova-Code environment
+export LOCAL_MODEL_PROVIDER=openai-compatible
+export LOCAL_MODEL_MODEL=qwen3-coder-30b
+export LOCAL_MODEL_ENDPOINT=http://127.0.0.1:8080/v1
+export OPENAI_API_KEY=dummy
+
+# 5. Setup Node.js
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+nvm use 20
+
+# 6. Test Nova-Code
+cd /models/novavoice/Nova-Code
+./bundle/gemini.js "Write a Python function to add two numbers"
+```
+
+### Manual Commands (if setup script doesn't work)
+
+```bash
+# Start llama-server manually
+llama-server \
+    -m /models/qwen3-coder-30b/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf \
+    --host 0.0.0.0 \
+    --port 8080 \
+    -c 8192 \
+    -ngl 99 \
+    --chat-template qwen \
+    > /tmp/llama-server.log 2>&1 &
+
+# Configure environment
+export LOCAL_MODEL_PROVIDER=openai-compatible
+export LOCAL_MODEL_MODEL=qwen3-coder-30b
+export LOCAL_MODEL_ENDPOINT=http://127.0.0.1:8080/v1
+export OPENAI_API_KEY=dummy
+
+# Set up Node.js
+export NVM_DIR="$HOME/.nvm"
+. "$NVM_DIR/nvm.sh"
+nvm use 20
+
+# Test Nova-Code
+cd /mnt/ssd/models/novavoice/Nova-Code
+./bundle/gemini.js "Write a Python function to add two numbers"
+```
+
+### Key Parameters Explained
+
+- **`-c 8192`**: Context window size (optimized from 32768 to reduce memory from ~38GB to ~25GB)
+- **`-ngl 99`**: Offload all layers to GPU for maximum performance
+- **`--chat-template qwen`**: Use Qwen's chat format (handles `<|im_start|>` tokens)
+- **`--port 8080`**: Avoids conflict with Ollama on port 11434
+
+### Testing llama-server API
+
+```bash
+# Check server health
+curl http://localhost:8080/health
+
+# List models
+curl http://localhost:8080/v1/models
+
+# Test tool calling
+curl -X POST http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen3-coder-30b",
+    "messages": [{"role": "user", "content": "What is 2+2?"}],
+    "tools": [{
+      "type": "function",
+      "function": {
+        "name": "calculate",
+        "description": "Do math",
+        "parameters": {"type": "object", "properties": {"expr": {"type": "string"}}}
+      }
+    }],
+    "max_tokens": 100
+  }'
+```
+
+### Memory Optimization Notes
+
+**Original Modelfile** (`num_ctx 32768`):
+- Model: 18GB
+- KV Cache: ~15-20GB
+- **Total: ~35-38GB** → Causes memory starvation and swapping on 64GB Jetson
+
+**Optimized** (`-c 8192`):
+- Model: 18GB
+- KV Cache: ~5-7GB
+- **Total: ~23-25GB** → Leaves headroom for system and other processes
+
+### Troubleshooting
+
+**If server won't start:**
+```bash
+# Check if port is in use
+netstat -tlnp | grep 8080
+
+# Check logs
+tail -f /tmp/llama-server.log
+
+# Check GPU memory
+nvidia-smi
+```
+
+**If Nova-Code times out:**
+```bash
+# Test llama-server directly first
+curl http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"qwen3-coder-30b","messages":[{"role":"user","content":"Hi"}]}'
+```
+
+**If tool calling doesn't work:**
+- llama.cpp should return proper `tool_calls` in OpenAI format
+- If it returns JSON text instead, the model may need `--grammar` or different prompt
+
+### Files Created
+
+- `/mnt/ssd/models/novavoice/Nova-Code/setup_llama_cpp.sh` - Automated setup script
+- `/mnt/ssd/models/qwen3-coder-30b/Modelfile` - Optimized Ollama Modelfile (backup, with lowercase directives and `num_ctx 8192`)
+
+## Inference Engine Comparison (2025-10-28 Session Notes)
+
+### What We Learned About Ollama Issues
+
+**Problem:** Qwen3-Coder-30B was taking 60+ seconds per query with Ollama
+**Root Cause:** Memory starvation from `num_ctx 32768` in Modelfile
+- 18GB model + 15-20GB KV cache = ~38GB total memory
+- System had only 556MB free RAM → swapping → extreme slowness
+
+**Attempted Fixes:**
+1. Reduced `num_ctx` to 8192 in Modelfile ✅
+2. Tried to recreate model with `ollama create` ❌
+3. Hit Ollama 0.12.6 CLI/server version mismatch bug ❌
+
+**Ollama Bug Details:**
+- CLI client expects old Modelfile format
+- Server expects new JSON API format
+- Cannot recreate models without workarounds
+- See: https://github.com/ollama/ollama/issues/7935
+
+### Inference Engine Landscape
+
+| Engine | Best For | Speed | Memory | Jetson Support | Quantization |
+|--------|----------|-------|--------|----------------|--------------|
+| **llama.cpp** | Edge devices, single-user | Fast | Excellent (GGUF Q4) | ✅ Perfect | INT4/INT8 |
+| **Ollama** | Quick testing, demos | Fast | Good | ✅ Works | Uses llama.cpp |
+| **vLLM** | Multi-user, high throughput | Very Fast | Good (PagedAttention) | ⚠️ Limited | INT4/INT8/AWQ |
+| **TensorRT-LLM** | Maximum performance | Fastest | Excellent | ✅ Optimized | FP8/INT4/INT8 |
+| **Transformers** | Development, research | Slow | Poor (FP16/FP32) | ✅ Works | Via bitsandbytes |
+| **SGLang** | Structured output | Very Fast | Good (RadixAttention) | ⚠️ Unknown | INT4/INT8 |
+
+### Why llama.cpp for Jetson Orin AGX
+
+**Current Setup (Recommended):**
+- Engine: llama.cpp compiled from source with CUDA support
+- Model: Qwen3-Coder-30B Q4_K_M quantization (18GB GGUF)
+- Memory: ~25GB total (18GB model + 7GB context at 8192 tokens)
+- Speed: Fast inference (~2-5 tok/s on Jetson)
+- Integration: OpenAI-compatible API → works with Nova-Code
+
+**Future Optimization Option:**
+- Engine: TensorRT-LLM with INT4-AWQ quantization
+- Expected speedup: 2-4x faster than llama.cpp
+- Setup complexity: Higher (need to build engines, ~30-60 min)
+- Worth it for: Production use, maximum performance
+
+### Memory Optimization Notes
+
+**Qwen3-Coder-30B Memory Usage:**
+
+```
+Context Size | KV Cache | Model | Total | Jetson 64GB Status
+-------------|----------|-------|-------|-------------------
+32,768 tokens| ~20GB    | 18GB  | 38GB  | ❌ Too tight, causes swapping
+8,192 tokens | ~5-7GB   | 18GB  | 25GB  | ✅ Comfortable, leaves headroom
+4,096 tokens | ~3GB     | 18GB  | 21GB  | ✅ Safe, but limited context
+```
+
+**Key Insight:** Lower context = more free memory for other processes (Nova voice assistant, vision, etc.)
+
+### Container Issues Encountered
+
+**jetson-containers pip index broken (as of 2025-10-28):**
+```
+ERROR: Could not find a version that satisfies the requirement pip (from versions: none)
+Looking in indexes: https://pypi.jetson-ai-lab.io/jp6/cu122
+```
+
+**Workaround:** Compile llama.cpp from source in existing containers (nova_backup_with_deps)
+
+### Quick Commands Reference
+
+```bash
+# Kill Ollama and free VRAM
+docker kill $(docker ps -q --filter ancestor=ollama/ollama)
+
+# Check if llama.cpp is built
+ls -lh /models/llama.cpp/build/bin/llama-server
+
+# Start llama-server (port 8080)
+/models/llama.cpp/build/bin/llama-server \
+    -m /models/qwen3-coder-30b/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf \
+    --host 0.0.0.0 --port 8080 -c 8192 -ngl 99 \
+    > /tmp/llama-server.log 2>&1 &
+
+# Test llama-server
+curl http://localhost:8080/v1/models
+
+# Check GPU memory
+nvidia-smi
+```
+
 ## Reference Documentation
 
 - Architecture deep-dive: `docs/architecture.md`

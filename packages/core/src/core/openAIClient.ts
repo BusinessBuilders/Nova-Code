@@ -21,7 +21,6 @@ import type {
   GenerateContentResponse,
   GenerateContentResponseUsageMetadata,
   Part,
-  Tool,
   ToolListUnion,
 } from '@google/genai';
 import { toContents } from '../code_assist/converter.js';
@@ -325,8 +324,12 @@ class ToolCallAccumulator {
 class OpenAIStreamParser {
   private readonly toolCallBuffers = new Map<number, ToolCallAccumulator>();
   private lastResponseId?: string;
+  private textBuffer = '';  // Buffer for potential function call JSON
 
-  constructor(private readonly fallbackModel: string) {}
+  constructor(
+    private readonly fallbackModel: string,
+    private readonly tryParseTextAsFunctionCall: (text: string) => GeminiFunctionCall | undefined
+  ) {}
 
   processChoice(
     choice: OpenAIChatCompletionChunkChoice,
@@ -334,7 +337,14 @@ class OpenAIStreamParser {
   ): GenerateContentResponse | undefined {
     const parts: Part[] = [];
     const contentParts = openAIContentToGeminiParts(choice.delta?.content);
+
+    // Buffer text content for potential function call parsing
     if (contentParts.length > 0) {
+      for (const part of contentParts) {
+        if (part.text) {
+          this.textBuffer += part.text;
+        }
+      }
       parts.push(...contentParts);
     }
 
@@ -346,6 +356,17 @@ class OpenAIStreamParser {
     }
 
     const finishReason = mapFinishReason(choice.finish_reason);
+
+    // On completion, try to parse buffered text as function call
+    if (finishReason && this.textBuffer && toolCalls.length === 0) {
+      const parsed = this.tryParseTextAsFunctionCall(this.textBuffer);
+      if (parsed) {
+        // Replace all text parts with the function call
+        parts.length = 0;
+        parts.push({ functionCall: parsed });
+      }
+      this.textBuffer = '';  // Reset buffer
+    }
     const usageMetadata = usageToMetadata(chunk.usage);
     this.lastResponseId = chunk.id;
 
@@ -372,14 +393,9 @@ class OpenAIStreamParser {
       modelVersion: chunk.model || this.fallbackModel,
       responseId: chunk.id,
       candidates: [candidate],
-    };
-
-    if (toolCalls.length > 0) {
-      response.functionCalls = toolCalls;
-    }
-    if (usageMetadata) {
-      response.usageMetadata = usageMetadata;
-    }
+      ...(toolCalls.length > 0 && { functionCalls: toolCalls }),
+      ...(usageMetadata && { usageMetadata }),
+    } as GenerateContentResponse;
     return response;
   }
 
@@ -410,7 +426,7 @@ class OpenAIStreamParser {
         },
       ],
       functionCalls: calls,
-    };
+    } as GenerateContentResponse;
   }
 
   private captureToolCalls(
@@ -441,12 +457,11 @@ class OpenAIStreamParser {
 export class OpenAIClient implements ContentGenerator {
   private readonly localModel: LocalModelConfig;
   private readonly chatEndpoint: string;
-  private readonly embeddingsEndpoint: string;
   private readonly headers: Record<string, string>;
   private readonly defaultModel: string;
   private readonly isOpenRouter: boolean;
 
-  constructor(private readonly contentGeneratorConfig: ContentGeneratorConfig) {
+  constructor(contentGeneratorConfig: ContentGeneratorConfig) {
     if (!contentGeneratorConfig.localModel) {
       throw new Error(
         'Local model configuration is required when using local auth.',
@@ -463,7 +478,7 @@ export class OpenAIClient implements ContentGenerator {
         DEFAULT_OPENAI_ENDPOINT,
     );
     this.chatEndpoint = this.ensurePath(endpoint, 'chat/completions');
-    this.embeddingsEndpoint = this.ensurePath(endpoint, 'embeddings');
+    // Embeddings endpoint would be: this.ensurePath(endpoint, 'embeddings')
     this.isOpenRouter = endpoint.includes(OPENROUTER_HOST);
     this.headers = this.buildHeaders();
   }
@@ -507,7 +522,10 @@ export class OpenAIClient implements ContentGenerator {
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
-    const parser = new OpenAIStreamParser(this.resolveModel(request.model));
+    const parser = new OpenAIStreamParser(
+      this.resolveModel(request.model),
+      this.tryParseTextAsFunctionCall.bind(this)
+    );
 
     const stream = async function* (): AsyncGenerator<GenerateContentResponse> {
       let buffer = '';
@@ -912,11 +930,12 @@ export class OpenAIClient implements ContentGenerator {
     if (!tools) {
       return [];
     }
-    const toolArray: Tool[] = Array.isArray(tools) ? tools : [tools];
+    // Handle ToolListUnion which can be Tool | Tool[] | CallableTool | CallableTool[]
+    const toolArray = Array.isArray(tools) ? tools : [tools];
     const declarations: FunctionDeclaration[] = [];
     for (const tool of toolArray) {
-      if (tool?.functionDeclarations) {
-        declarations.push(...tool.functionDeclarations);
+      if ((tool as any)?.functionDeclarations) {
+        declarations.push(...(tool as any).functionDeclarations);
       }
     }
     return declarations;
@@ -939,6 +958,98 @@ export class OpenAIClient implements ContentGenerator {
     return 'user';
   }
 
+  /**
+   * Attempts to parse text content as a function call for models that output
+   * function calls as JSON text instead of using OpenAI's tool_calls format.
+   * This is production-grade parsing with multiple format support and error handling.
+   *
+   * @param text - The text content to parse
+   * @returns A function call object if parsing succeeds, otherwise undefined
+   */
+  private tryParseTextAsFunctionCall(text: string): GeminiFunctionCall | undefined {
+    try {
+      let trimmed = text.trim();
+
+      // Remove markdown code fences if present
+      const codeFenceRegex = /^```(?:json)?\s*([\s\S]*?)\s*```$/;
+      const match = trimmed.match(codeFenceRegex);
+      if (match) {
+        trimmed = match[1].trim();
+      }
+
+      // Check for Qwen3's XML-style tool calls: <function=name>...<parameter>...</parameter>...
+      // Extract the XML portion even if surrounded by other text
+      if (trimmed.includes('<function=')) {
+
+        // Find the start of the function tag
+        const functionStartIndex = trimmed.indexOf('<function=');
+        if (functionStartIndex !== -1) {
+          // Extract just the XML portion (from <function= onwards)
+          const xmlPortion = trimmed.slice(functionStartIndex);
+
+          // Extract function name from <function=name> pattern
+          const functionMatch = xmlPortion.match(/<function=([^>]+)>/);
+          if (functionMatch) {
+            const name = functionMatch[1].trim();
+            const args: Record<string, unknown> = {};
+
+            // Extract all parameters from <parameter=key>value</parameter> pattern
+            const paramRegex = /<parameter=([^>]+)>([\s\S]*?)<\/parameter>/g;
+            let paramMatch;
+            while ((paramMatch = paramRegex.exec(xmlPortion)) !== null) {
+              const key = paramMatch[1].trim();
+              const value = paramMatch[2].trim();
+              args[key] = value;
+            }
+
+            return {
+              id: randomUUID(),
+              name,
+              args,
+            };
+          }
+        }
+      }
+
+      // Must be a JSON object
+      if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) {
+        return undefined;
+      }
+
+      const data = JSON.parse(trimmed);
+
+      // Extract function name from multiple possible fields
+      const name =
+        (typeof data.name === 'string' && data.name) ||
+        (typeof data.tool === 'string' && data.tool) ||
+        (typeof data.function === 'string' && data.function) ||
+        (typeof data.command === 'string' && data.command);
+
+      if (!name || typeof name !== 'string') {
+        return undefined;
+      }
+
+      // Extract arguments from multiple possible fields
+      const rawArgs =
+        data.arguments ?? data.args ?? data.parameters ?? data.params ?? {};
+
+      // Normalize arguments to object format
+      const args =
+        rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs)
+          ? rawArgs
+          : { value: rawArgs ?? null };
+
+      return {
+        id: randomUUID(),
+        name,
+        args,
+      };
+    } catch (error) {
+      // Not a valid function call JSON, return undefined
+      return undefined;
+    }
+  }
+
   private fromChatCompletionResponse(
     response: OpenAIChatCompletionResponse,
   ): GenerateContentResponse {
@@ -947,6 +1058,17 @@ export class OpenAIClient implements ContentGenerator {
 
     for (const choice of response.choices ?? []) {
       const parts = openAIContentToGeminiParts(choice.message?.content);
+
+      // Handle models (like Ollama) that output function calls as JSON text
+      if (parts.length === 1 && parts[0].text) {
+        const parsed = this.tryParseTextAsFunctionCall(parts[0].text);
+        if (parsed) {
+          // Replace text part with function call part
+          parts[0] = { functionCall: parsed };
+          functionCalls.push(parsed);
+        }
+      }
+
       const toolCalls = (choice.message?.tool_calls ?? [])
         .map((call) => this.toFunctionCall(call))
         .filter((call): call is GeminiFunctionCall => !!call);
@@ -975,13 +1097,11 @@ export class OpenAIClient implements ContentGenerator {
       responseId: response.id,
       candidates,
       usageMetadata: usageToMetadata(response.usage),
-    };
-    if (response.created) {
-      result.createTime = new Date(response.created * 1000).toISOString();
-    }
-    if (functionCalls.length > 0) {
-      result.functionCalls = functionCalls;
-    }
+      ...(response.created && {
+        createTime: new Date(response.created * 1000).toISOString()
+      }),
+      ...(functionCalls.length > 0 && { functionCalls }),
+    } as GenerateContentResponse;
     return result;
   }
 
